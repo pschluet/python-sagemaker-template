@@ -1,0 +1,16 @@
+version: '3'
+services:
+  notebook:
+    image: jnotebook
+    ports:
+      - "8888:8888"
+      - "8080:8080"
+    volumes:
+      - ../container/local_test/test_dir:/opt/ml
+      - ../container/algorithm:/opt/program
+      - ..:/opt/volume
+      - ~/.aws:/root/.aws
+    environment:
+      - MLFLOW_TRACKING_URI=http://production.yg2upmxaxt.us-east-1.elasticbeanstalk.com
+      - USER
+    working_dir: "/opt/volume"
