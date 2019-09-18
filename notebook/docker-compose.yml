@@ -1,7 +1,7 @@
 version: '3'
 services:
   notebook:
-    image: jnotebook
+    image: python-notebook
     ports:
       - "8888:8888"
       - "8080:8080"
@@ -11,6 +11,5 @@ services:
       - ..:/opt/volume
       - ~/.aws:/root/.aws
     environment:
-      - MLFLOW_TRACKING_URI=http://production.yg2upmxaxt.us-east-1.elasticbeanstalk.com
       - USER
     working_dir: "/opt/volume"

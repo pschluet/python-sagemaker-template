@@ -1,1 +1,1 @@
-docker build -t jnotebook .
+docker build -t python-notebook .

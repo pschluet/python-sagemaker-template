@@ -1,4 +1,4 @@
-FROM scikit
+FROM python-base
 
 COPY extra-requirements.txt extra-requirements.txt
 RUN pip install -r extra-requirements.txt
