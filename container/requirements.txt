@@ -5,3 +5,4 @@ pandas==0.25.1
 flask==1.1.1
 gevent==1.4.0
 gunicorn==19.9.0
+requests==2.22.0
