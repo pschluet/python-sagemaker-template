@@ -7,9 +7,6 @@ import time
 from train import train
 import os
 
-# TODO
-#  - Reorganize files/folders and think about artifacts for testing
-
 class TestServer(unittest.TestCase):
 
     BASE_URL = 'http://localhost:8080'
