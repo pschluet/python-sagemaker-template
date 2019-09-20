@@ -46,7 +46,7 @@ The `container\local_test\test_dir` folder contains all of the files that are us
 - Other outputs (transformed data or anything else you want) get written to the `output` folder. If your algorithm fails, write a file called `failure` to this directory that describes why the training failed. The contents of this file will be returned in the FailureReason field of the DescribeTrainingJob result (in SageMaker). For jobs that succeed, there is no reason to write this file as it will be ignored.
 
 ### Integration Tests
-To run the integrations tests
+To run the integration tests
 ```
 cd container/local_test
 ./test.sh
