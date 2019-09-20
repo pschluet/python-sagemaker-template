@@ -4,8 +4,11 @@ import unittest
 import subprocess
 import requests
 import time
+from train import train
+import os
 
-
+# TODO
+#  - Reorganize files/folders and think about artifacts for testing
 
 class TestServer(unittest.TestCase):
 
@@ -52,6 +55,20 @@ class TestServer(unittest.TestCase):
             headers={'Content-Type': 'text/csv'}
         )
         self.assertEqual(r.text, 'setosa\nsetosa\nsetosa\nsetosa\nsetosa\nsetosa\nsetosa\nsetosa\nsetosa\nsetosa\nversicolor\nversicolor\nversicolor\nversicolor\nversicolor\nversicolor\nversicolor\nversicolor\nversicolor\nversicolor\nvirginica\nvirginica\nvirginica\nvirginica\nvirginica\nvirginica\nvirginica\nvirginica\nvirginica\n')
+
+
+class TestTraining(unittest.TestCase):
+    def test_train(self):
+        # Clear the model file if it exists
+        model_path = '/opt/ml/model/model.joblib'
+        if os.path.exists(model_path): os.remove(model_path)
+
+        # Train the model
+        train()
+
+        # Make sure we created a new model file
+        self.assertTrue(os.path.exists(model_path))
+
 
 if __name__ == '__main__':
     unittest.main()
