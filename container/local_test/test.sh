@@ -1,0 +1,1 @@
+docker run -v $(pwd)/test_dir:/opt/ml python-base test
