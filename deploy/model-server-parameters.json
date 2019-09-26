@@ -1,0 +1,18 @@
+[
+    {
+        "ParameterKey": "ProductName",
+        "ParameterValue": "my-product"
+    },
+    {
+        "ParameterKey": "ProductCostTag",
+        "ParameterValue": "artificial-intelligence"
+    },
+    {
+        "ParameterKey": "ServiceCostTag",
+        "ParameterValue": "model-server"
+    },
+    {
+        "ParameterKey": "StageCostTag",
+        "ParameterValue": "dev"
+    }
+]

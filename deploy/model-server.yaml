@@ -1,0 +1,53 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: "The training and deployment pipeline for a Machine Learning model API"
+
+Parameters:
+  ProductName:
+    Description: Name of the product
+    Type: String
+  ProductCostTag:
+    Description: Project tag to be used for cost-tracking purposes
+    Type: String
+  ServiceCostTag:
+    Description: Service tag to be used for cost-tracking purposes
+    Type: String
+  StageCostTag:
+    Description: Environment tag to be used for cost-tracking purposes
+    Type: String
+
+# Mappings:
+#   set of mappings
+
+# Conditions:
+#   set of conditions
+
+Resources:
+  DataSourceBucket:
+    Type: AWS::S3::Bucket
+    Properties: 
+      BucketName: !Join
+        - '-'
+        - - !Ref ProductName
+          - !Ref "AWS::Region"
+          - !Ref "AWS::AccountId"
+      LifecycleConfiguration:
+        Rules: 
+          - NoncurrentVersionExpirationInDays: 90
+            Status: "Enabled"
+      Tags: 
+        - 
+          Key: "product"
+          Value: !Ref ProductCostTag
+        - 
+          Key: "service"
+          Value: !Ref ServiceCostTag
+        - 
+          Key: "stage"
+          Value: !Ref StageCostTag
+      VersioningConfiguration: 
+        Status: "Enabled"
+
+# Outputs:
+#   set of outputs
