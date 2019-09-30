@@ -88,7 +88,7 @@ Resources:
             Resource: !Join
               - '/'
               - - !GetAtt CloudTrailLoggingBucket.Arn
-                #- !Ref ServiceName
+                - !Ref ServiceName
                 - AWSLogs
                 - !Ref "AWS::AccountId"
                 - "*"
@@ -202,6 +202,7 @@ Resources:
                   - "."
       IsLogging: true
       S3BucketName: !Ref CloudTrailLoggingBucket
+      S3KeyPrefix: !Ref ServiceName
       Tags: 
         - 
           Key: "product"
