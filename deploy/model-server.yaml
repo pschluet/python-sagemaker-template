@@ -46,17 +46,55 @@ Resources:
           Value: !Ref EnvironmentName
       VersioningConfiguration: 
         Status: "Enabled"
-  # NewSourceDataEvent:
-  #   Type: AWS::Events::Rule
-  #   Properties: 
-  #     Description: "An event signifying that new data has been uploaded to the training data bucket"
-  #     EventPattern: Json
-  #     Name: String
-  #     RoleArn: String
-  #     ScheduleExpression: String
-  #     State: String
-  #     Targets: 
-  #       - Target
+  CloudTrailLoggingBucket:
+    Type: AWS::S3::Bucket
+    Properties: 
+      BucketName: !Join
+        - '-'
+        - - !Ref ServiceName
+          - !Ref EnvironmentName
+          - !Ref "AWS::Region"
+          - !Ref "AWS::AccountId"
+          - "cloudtrail-logs"
+      Tags: 
+        - 
+          Key: "product"
+          Value: !Ref ProductName
+        - 
+          Key: "service"
+          Value: !Ref ServiceName
+        - 
+          Key: "stage"
+          Value: !Ref EnvironmentName
+  CloudtrailBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    DependsOn: CloudTrailLoggingBucket
+    Properties: 
+      Bucket: !Ref CloudTrailLoggingBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AWSCloudTrailAclCheck20150319
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:GetBucketAcl
+            Resource: !GetAtt CloudTrailLoggingBucket.Arn
+          - Sid: AWSCloudTrailWrite20150319
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Join
+              - '/'
+              - - !GetAtt CloudTrailLoggingBucket.Arn
+                #- !Ref ServiceName
+                - AWSLogs
+                - !Ref "AWS::AccountId"
+                - "*"
+            Condition:
+              StringEquals:
+                s3:x-amz-acl: bucket-owner-full-control
   EcrRepository:
     Type: AWS::ECR::Repository
     Properties: 
@@ -148,5 +186,68 @@ Resources:
         - 
           Key: "stage"
           Value: !Ref EnvironmentName
+  NewSourceDataTrail:
+    Type: AWS::CloudTrail::Trail
+    DependsOn: 
+      - CloudtrailBucketPolicy
+      - CloudTrailLoggingBucket
+    Properties: 
+      EventSelectors: 
+        - DataResources: 
+          - Type: AWS::S3::Object
+            Values: 
+              - !Join
+                - "/"
+                - - !GetAtt DataSourceBucket.Arn
+                  - "."
+      IsLogging: true
+      S3BucketName: !Ref CloudTrailLoggingBucket
+      Tags: 
+        - 
+          Key: "product"
+          Value: !Ref ProductName
+        - 
+          Key: "service"
+          Value: !Ref ServiceName
+        - 
+          Key: "stage"
+          Value: !Ref EnvironmentName
+  # NewSourceDataEvent:
+  #   Type: AWS::Events::Rule
+  #   Properties: 
+  #     Description: "An event signifying that new data has been uploaded to the training data bucket"
+  #     EventPattern: |
+  #       {
+  #         "source": [
+  #           "aws.s3"
+  #         ],
+  #         "detail-type": [
+  #           "AWS API Call via CloudTrail"
+  #         ],
+  #         "detail": {
+  #           "eventSource": [
+  #             "s3.amazonaws.com"
+  #           ],
+  #           "eventName": [
+  #             "PutObject"
+  #           ],
+  #           "requestParameters": {
+  #             "bucketName": [
+  #               "arn:aws:s3:::test-schlueter"
+  #             ]
+  #           }
+  #         }
+  #       }
+  #     Name: !Join
+  #       - '-'
+  #       - - !Ref ProductName
+  #         - !Ref ServiceName
+  #         - !Ref EnvironmentName
+  #         - "new-source-data"
+  #     State: ENABLED
+  #     Targets: 
+  #       - Arn: !GetAtt InitiateStepFunctionsLambda.Arn
+  #         Id: "step-function-launcher"
+  #         # RoleArn: String
 # Outputs:
 #   set of outputs
