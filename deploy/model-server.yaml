@@ -251,13 +251,51 @@ Resources:
       Targets: 
         - Arn: !GetAtt InitiateStepFunctionsLambda.Arn
           Id: "step-function-launcher"
-          # RoleArn: String
-  PermissionForNewSourceDataEventToInvokeLambda: 
+  NewEcrImageEvent:
+    Type: AWS::Events::Rule
+    Properties: 
+      Description: "An event signifying that a new docker image has been pushed to ECR"
+      EventPattern: !Sub
+        - |
+          {
+            "source": [
+              "aws.ecr"
+            ],
+            "detail": {
+              "eventName": [
+                "PutImage"
+              ],
+              "requestParameters": {
+                "repositoryName": [
+                  "${EcrRepositoryName}"
+                ]
+              }
+            }
+          }
+        - { EcrRepositoryName: !Ref EcrRepository }
+      Name: !Join
+        - '-'
+        - - !Ref ProductName
+          - !Ref ServiceName
+          - !Ref EnvironmentName
+          - "new-docker-image"
+      State: ENABLED
+      Targets: 
+        - Arn: !GetAtt InitiateStepFunctionsLambda.Arn
+          Id: "step-function-launcher"
+  PermissionForNewSourceDataEventToInvokeInitiateStepFunctionsLambda: 
     Type: AWS::Lambda::Permission
     Properties: 
       FunctionName: !Ref InitiateStepFunctionsLambda
       Action: "lambda:InvokeFunction"
       Principal: "events.amazonaws.com"
       SourceArn: !GetAtt NewSourceDataEvent.Arn
+  PermissionForNewEcrImageEventToInvokeInitiateStepFunctionsLambda: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: !Ref InitiateStepFunctionsLambda
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt NewEcrImageEvent.Arn
 # Outputs:
 #   set of outputs
