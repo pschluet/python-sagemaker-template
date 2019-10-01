@@ -195,11 +195,11 @@ Resources:
       EventSelectors: 
         - DataResources: 
           - Type: AWS::S3::Object
-            Values: 
+            Values:
               - !Join
-                - "/"
+                - ""
                 - - !GetAtt DataSourceBucket.Arn
-                  - "."
+                  - "/"
       IsLogging: true
       S3BucketName: !Ref CloudTrailLoggingBucket
       S3KeyPrefix: !Ref ServiceName
@@ -213,42 +213,51 @@ Resources:
         - 
           Key: "stage"
           Value: !Ref EnvironmentName
-  # NewSourceDataEvent:
-  #   Type: AWS::Events::Rule
-  #   Properties: 
-  #     Description: "An event signifying that new data has been uploaded to the training data bucket"
-  #     EventPattern: |
-  #       {
-  #         "source": [
-  #           "aws.s3"
-  #         ],
-  #         "detail-type": [
-  #           "AWS API Call via CloudTrail"
-  #         ],
-  #         "detail": {
-  #           "eventSource": [
-  #             "s3.amazonaws.com"
-  #           ],
-  #           "eventName": [
-  #             "PutObject"
-  #           ],
-  #           "requestParameters": {
-  #             "bucketName": [
-  #               "arn:aws:s3:::test-schlueter"
-  #             ]
-  #           }
-  #         }
-  #       }
-  #     Name: !Join
-  #       - '-'
-  #       - - !Ref ProductName
-  #         - !Ref ServiceName
-  #         - !Ref EnvironmentName
-  #         - "new-source-data"
-  #     State: ENABLED
-  #     Targets: 
-  #       - Arn: !GetAtt InitiateStepFunctionsLambda.Arn
-  #         Id: "step-function-launcher"
-  #         # RoleArn: String
+  NewSourceDataEvent:
+    Type: AWS::Events::Rule
+    Properties: 
+      Description: "An event signifying that new data has been uploaded to the training data bucket"
+      EventPattern: !Sub
+        - |
+          {
+            "source": [
+              "aws.s3"
+            ],
+            "detail-type": [
+              "AWS API Call via CloudTrail"
+            ],
+            "detail": {
+              "eventSource": [
+                "s3.amazonaws.com"
+              ],
+              "eventName": [
+                "PutObject"
+              ],
+              "requestParameters": {
+                "bucketName": [
+                  "${SourceBucketName}"
+                ]
+              }
+            }
+          }
+        - { SourceBucketName: !Ref DataSourceBucket }
+      Name: !Join
+        - '-'
+        - - !Ref ProductName
+          - !Ref ServiceName
+          - !Ref EnvironmentName
+          - "new-source-data"
+      State: ENABLED
+      Targets: 
+        - Arn: !GetAtt InitiateStepFunctionsLambda.Arn
+          Id: "step-function-launcher"
+          # RoleArn: String
+  PermissionForNewSourceDataEventToInvokeLambda: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: !Ref InitiateStepFunctionsLambda
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt NewSourceDataEvent.Arn
 # Outputs:
 #   set of outputs
