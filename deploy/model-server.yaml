@@ -95,7 +95,7 @@ Resources:
             Condition:
               StringEquals:
                 s3:x-amz-acl: bucket-owner-full-control
-  EcrRepository:
+  PullRequestEcrRepository:
     Type: AWS::ECR::Repository
     Properties: 
       LifecyclePolicy: 
@@ -117,7 +117,73 @@ Resources:
         - '-'
         - - !Ref ProductName
           - !Ref ServiceName
-          - !Ref EnvironmentName
+          - "pull-request"
+      Tags: 
+        - 
+          Key: "product"
+          Value: !Ref ProductName
+        - 
+          Key: "service"
+          Value: !Ref ServiceName
+        - 
+          Key: "stage"
+          Value: !Ref EnvironmentName
+  DevelopEcrRepository:
+    Type: AWS::ECR::Repository
+    Properties: 
+      LifecyclePolicy: 
+        LifecyclePolicyText: |
+          {
+            "rules": [
+            {
+              "rulePriority": 1,
+              "description": "Only keep a set number of images",
+              "selection": {
+                "tagStatus": "any",
+                "countType": "imageCountMoreThan",
+                "countNumber": 10
+              },
+              "action": { "type": "expire" }
+            }]
+          }
+      RepositoryName: !Join
+        - '-'
+        - - !Ref ProductName
+          - !Ref ServiceName
+          - "develop"
+      Tags: 
+        - 
+          Key: "product"
+          Value: !Ref ProductName
+        - 
+          Key: "service"
+          Value: !Ref ServiceName
+        - 
+          Key: "stage"
+          Value: !Ref EnvironmentName
+  MasterEcrRepository:
+    Type: AWS::ECR::Repository
+    Properties: 
+      LifecyclePolicy: 
+        LifecyclePolicyText: |
+          {
+            "rules": [
+            {
+              "rulePriority": 1,
+              "description": "Only keep a set number of images",
+              "selection": {
+                "tagStatus": "any",
+                "countType": "imageCountMoreThan",
+                "countNumber": 10
+              },
+              "action": { "type": "expire" }
+            }]
+          }
+      RepositoryName: !Join
+        - '-'
+        - - !Ref ProductName
+          - !Ref ServiceName
+          - "master"
       Tags: 
         - 
           Key: "product"
@@ -255,8 +321,7 @@ Resources:
     Type: AWS::Events::Rule
     Properties: 
       Description: "An event signifying that a new docker image has been pushed to ECR"
-      EventPattern: !Sub
-        - |
+      EventPattern: !Sub |
           {
             "source": [
               "aws.ecr"
@@ -267,12 +332,13 @@ Resources:
               ],
               "requestParameters": {
                 "repositoryName": [
-                  "${EcrRepositoryName}"
+                  "${PullRequestEcrRepository}",
+                  "${DevelopEcrRepository}",
+                  "${MasterEcrRepository}"
                 ]
               }
             }
           }
-        - { EcrRepositoryName: !Ref EcrRepository }
       Name: !Join
         - '-'
         - - !Ref ProductName
