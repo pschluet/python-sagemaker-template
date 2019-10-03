@@ -13,8 +13,8 @@ Parameters:
   EnvironmentName:
     Description: Environment name (also used as a tag for cost-tracking purposes)
     Type: String
-  TrainingDataS3Prefix:
-    Description: S3 prefix used to identify training data file
+  TrainingDataS3Key:
+    Description: S3 key used to identify the training data file
     Type: String
 
 # Mappings:
@@ -246,7 +246,7 @@ Resources:
       Environment: 
         Variables: 
           DATA_SOURCE_BUCKET_NAME: !Ref DataSourceBucket
-          DATA_SOURCE_OBJECT_KEY: !Ref TrainingDataS3Prefix
+          DATA_SOURCE_OBJECT_KEY: !Ref TrainingDataS3Key
           DEVELOP_BRANCH_ECR_REPOSITORY_NAME: !Ref DevelopEcrRepository
       FunctionName: !Join
         - '-'
@@ -281,9 +281,9 @@ Resources:
           - Type: AWS::S3::Object
             Values:
               - !Join
-                - ""
+                - "/"
                 - - !GetAtt DataSourceBucket.Arn
-                  - "/"
+                  - !Ref TrainingDataS3Key
       IsLogging: true
       S3BucketName: !Ref CloudTrailLoggingBucket
       S3KeyPrefix: !Ref ServiceName
@@ -320,6 +320,9 @@ Resources:
               "requestParameters": {
                 "bucketName": [
                   "${SourceBucketName}"
+                ],
+                "key": [
+                  "${TrainingDataS3Key}"
                 ]
               }
             }

@@ -12,7 +12,7 @@
         "ParameterValue": "dev"
     },
     {
-        "ParameterKey": "TrainingDataS3Prefix",
+        "ParameterKey": "TrainingDataS3Key",
         "ParameterValue": "training_data.csv"
     }
 ]
