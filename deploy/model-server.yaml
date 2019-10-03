@@ -13,6 +13,9 @@ Parameters:
   EnvironmentName:
     Description: Environment name (also used as a tag for cost-tracking purposes)
     Type: String
+  TrainingDataS3Prefix:
+    Description: S3 prefix used to identify training data file
+    Type: String
 
 # Mappings:
 #   set of mappings
@@ -214,14 +217,37 @@ Resources:
         Version: 2012-10-17
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AWSLambdaExecute
-      Path: /
+      Policies:
+        - PolicyName: InitiateStepFunctionsFromS3AndEcrPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                - s3:Get*
+                - s3:List*
+                Resource: !GetAtt DataSourceBucket.Arn
+              - Effect: Allow
+                Action:
+                - ecr:GetAuthorizationToken
+                - ecr:BatchCheckLayerAvailability
+                - ecr:GetDownloadUrlForLayer
+                - ecr:GetRepositoryPolicy
+                - ecr:DescribeRepositories
+                - ecr:ListImages
+                - ecr:DescribeImages
+                - ecr:BatchGetImage
+                Resource: !GetAtt DevelopEcrRepository.Arn
   InitiateStepFunctionsLambda:
     Type: AWS::Lambda::Function
     Properties: 
       Code: lambda/initiate_step_functions.py
       Description: "Lambda that initiates the Step Functions portion of the deployment pipeline"
-      # Environment: 
-      #   Environment
+      Environment: 
+        Variables: 
+          DATA_SOURCE_BUCKET_NAME: !Ref DataSourceBucket
+          DATA_SOURCE_OBJECT_KEY: !Ref TrainingDataS3Prefix
+          DEVELOP_BRANCH_ECR_REPOSITORY_NAME: !Ref DevelopEcrRepository
       FunctionName: !Join
         - '-'
         - - !Ref ProductName
