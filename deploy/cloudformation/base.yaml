@@ -319,7 +319,6 @@ Resources:
                 - "/"
                 - - !GetAtt DataSourceBucket.Arn
                   - !Ref TrainingDataS3Key
-          IncludeManagementEvents: false
       IsLogging: true
       S3BucketName: !Ref CloudTrailLoggingBucket
       S3KeyPrefix: !Ref ServiceName
