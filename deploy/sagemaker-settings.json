@@ -1,0 +1,20 @@
+{
+   "TrainingJob": {
+      "MetricDefinitions": [
+         {
+            "Name": "Scoring-Metric",
+            "Regex": "-Fold-Cross-Validated::accuracy::([0-9.]+)::"
+         }
+      ],
+      "StoppingCondition": {
+         "MaxRuntimeInSeconds": 600
+      },
+      "TrainingResourceConfig": {
+         "InstanceType": "ml.m5.large",
+         "VolumeSizeInGB": 10
+      }
+   },
+   "EndpointConfig": {
+      "InstanceType": "ml.t2.medium"
+   }
+}

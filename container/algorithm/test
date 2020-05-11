@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+from predictor import app
 import unittest
 import subprocess
 import requests
@@ -7,51 +8,26 @@ import time
 from train import train
 import os
 
-class TestServer(unittest.TestCase):
-
-    BASE_URL = 'http://localhost:8080'
-
-    @staticmethod
-    def process_running(process):
-        return process.poll() is None
-
-    @staticmethod
-    def server_started(process):
-        log_text = process.stderr.readline().decode('utf-8')
-        return 'Booting worker with pid' in log_text
-
-    @staticmethod
-    def wait_until_server_is_up(process):
-        for i in range(10):
-            if not TestServer.process_running(process):
-                return False
-            if TestServer.server_started(process):
-                return True
-            time.sleep(0.1)
-        return False
-
-    @classmethod
-    def setUpClass(self):
-        self.server = subprocess.Popen(["serve"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        if not TestServer.wait_until_server_is_up(self.server): raise Exception('Server could not be started!')
-
-    @classmethod
-    def tearDownClass(self):
-        self.server.terminate()
+class TestPredictor(unittest.TestCase):
+    def setUp(self):
+        # Create a test client
+        self.app = app.test_client()
+        # Propagate the exceptions to the test client
+        self.app.testing = True
 
     def test_ping(self):
-        r = requests.get('{}/ping'.format(self.BASE_URL))
-        self.assertEqual(r.status_code, 200)
+        response = self.app.get('/ping')
+        self.assertEqual(response.status_code, 200)
 
     def test_invocations(self):
         with open('/opt/program/test_payload.csv', 'rb') as f:
             payload = f.read()
-        r = requests.post(
-            url='{}/invocations'.format(self.BASE_URL),
+        response = self.app.post(
+            '/invocations',
             data=payload,
             headers={'Content-Type': 'text/csv'}
         )
-        self.assertEqual(r.text, 'setosa\nsetosa\nsetosa\nsetosa\nsetosa\nsetosa\nsetosa\nsetosa\nsetosa\nsetosa\nversicolor\nversicolor\nversicolor\nversicolor\nversicolor\nversicolor\nversicolor\nversicolor\nversicolor\nversicolor\nvirginica\nvirginica\nvirginica\nvirginica\nvirginica\nvirginica\nvirginica\nvirginica\nvirginica\n')
+        self.assertEqual(response.data.decode('utf-8'), 'setosa\nsetosa\nsetosa\nsetosa\nsetosa\nsetosa\nsetosa\nsetosa\nsetosa\nsetosa\nversicolor\nversicolor\nversicolor\nversicolor\nversicolor\nversicolor\nversicolor\nversicolor\nversicolor\nversicolor\nvirginica\nvirginica\nvirginica\nvirginica\nvirginica\nvirginica\nvirginica\nvirginica\nvirginica\n')
 
 
 class TestTraining(unittest.TestCase):

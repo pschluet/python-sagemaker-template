@@ -1,0 +1,277 @@
+  PushOutputLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join
+        - '-'
+        - - !Ref EnvironmentName
+          - !Ref ProductName
+          - !Ref ServiceName
+          - push-output
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action:
+            - sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+              - lambda.amazonaws.com
+        Version: 2012-10-17
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSLambdaExecute
+      Policies:
+        - PolicyName: !Join
+          - '-'
+          - - !Ref EnvironmentName
+            - !Ref ProductName
+            - !Ref ServiceName
+            - push-output-policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                - s3:Get*
+                - s3:List*
+                - s3:DeleteObject
+                Resource: 
+                - !GetAtt OutputBucket.Arn
+                - !Join
+                  - '/'
+                  - - !GetAtt OutputBucket.Arn
+                    - '*'
+  PushOutputLambda:
+    Type: AWS::Lambda::Function
+    Properties: 
+      Code: lambda/push_output.py
+      Description: "Lambda that pushes SageMaker output data to it's final resting place"
+      Environment: 
+        Variables: 
+          OUTPUT_BUCKET_NAME: !Ref OutputBucket
+      FunctionName: !Join
+        - '-'
+        - - !Ref EnvironmentName
+          - !Ref ProductName
+          - !Ref ServiceName
+          - push-output
+      Handler: push_output.lambda_handler
+      Role: !GetAtt PushOutputLambdaRole.Arn
+      Runtime: "python3.7"
+      Timeout: 30
+      Tags: 
+        - 
+          Key: "product"
+          Value: !Ref ProductName
+        - 
+          Key: "service"
+          Value: !Ref ServiceName
+        - 
+          Key: "stage"
+          Value: !Ref EnvironmentName
+  TrainAndDeployStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties: 
+      DefinitionString: !Sub 
+        - |
+          {
+            "Comment": "Training and deployment pipeline for a Machine Learning model.",
+            "StartAt": "Try",
+            "States": {
+              "Try": {
+                "Type": "Parallel",
+                "Branches": [
+                  {
+                    "StartAt": "Create Training Job Parameters",
+                    "States": {
+                      "Create Training Job Parameters": {
+                        "Type": "Task",
+                        "Parameters": {
+                          "execution_name.$":"$$.Execution.Name",
+                          "input.$":"$"
+                        },
+                        "Resource": "${CreateTrainingJobLambdaArn}",
+                        "ResultPath": "$.PreviousStep",
+                        "Next": "Execute Training Job"
+                      },
+                      "Execute Training Job": {
+                        "Type":"Task",
+                        "Resource":"arn:aws:states:::sagemaker:createTrainingJob.sync",
+                        "Parameters": {
+                          "TrainingJobName.$": "$.PreviousStep.TrainingJobParameters.TrainingJobName",
+                          "AlgorithmSpecification.$": "$.PreviousStep.TrainingJobParameters.AlgorithmSpecification",
+                          "RoleArn.$": "$.PreviousStep.TrainingJobParameters.RoleArn",
+                          "InputDataConfig.$": "$.PreviousStep.TrainingJobParameters.InputDataConfig",
+                          "OutputDataConfig.$": "$.PreviousStep.TrainingJobParameters.OutputDataConfig",
+                          "ResourceConfig.$": "$.PreviousStep.TrainingJobParameters.ResourceConfig",
+                          "StoppingCondition.$": "$.PreviousStep.TrainingJobParameters.StoppingCondition",
+                          "EnableNetworkIsolation.$": "$.PreviousStep.TrainingJobParameters.EnableNetworkIsolation",
+                          "Tags.$": "$.PreviousStep.TrainingJobParameters.Tags"
+                        },
+                        "ResultPath": "$.PreviousStep",
+                        "Next": "Get Training Job Metrics"
+                      },
+                      "Get Training Job Metrics": {
+                        "Type": "Task",
+                        "Resource": "${CheckTrainingJobStatusLambdaArn}",
+                        "ResultPath": "$.PreviousStep",
+                        "Next": "Check Model Metrics"
+                      },
+                      "Check Model Metrics": {
+                        "Type": "Choice",
+                        "Choices": [
+                          {
+                            "Variable": "$.PreviousStep.Metrics.Scoring-Metric",
+                            "NumericGreaterThan": 50,
+                            "Next": "Is Feature Branch"
+                          }
+                        ],
+                        "Default": "NotifyError"
+                      },
+                      "Is Feature Branch": {
+                        "Type": "Choice",
+                        "Choices": [
+                          {
+                            "Variable": "$.ecr.repository_name",
+                            "StringEquals": "${StagingEcrRepoName}",
+                            "Next": "Success"
+                          }
+                        ],
+                        "Default": "Push Output Data"
+                      },
+                      "Push Output Data": {
+                        "Type": "Task",
+                        "Resource": "${PushOutputLambdaArn}",
+                        "ResultPath": "$.PreviousStep",
+                        "Next": "Success"
+                      },
+                      "NotifyError": {
+                        "Type": "Task",
+                        "Resource": "arn:aws:states:::sns:publish",
+                        "Parameters": {
+                          "TopicArn": "${PipelineStatusSnsTopicArn}",
+                          "Message": "FAILURE",
+                          "MessageAttributes": {
+                            "StepFunctionsExecutionName": {
+                              "DataType": "String",
+                              "StringValue.$": "$$.Execution.Name"
+                            },
+                            "GitCommitHash": {
+                              "DataType": "String",
+                              "StringValue.$": "$.ecr.image_tags[0]"
+                            },
+                            "DataVersion": {
+                              "DataType": "String",
+                              "StringValue.$": "$.s3.version"
+                            }
+                          }
+                        },
+                        "ResultPath": "$.PreviousStep",
+                        "Next": "Fail"
+                      },
+                      "Fail": {
+                        "Type": "Fail"
+                      },
+                      "Success": {
+                        "Type": "Pass",
+                        "End": true
+                      }
+                    }
+                  }
+                ],
+                "Catch": [
+                  {
+                    "ErrorEquals": [ "States.ALL" ],
+                    "ResultPath": "$.PreviousStep",
+                    "Next": "ExceptionNotifyError"
+                  }
+                ],
+                "Next": "UnwrapOutput"
+              },
+              "ExceptionNotifyError": {
+                "Type": "Task",
+                "Resource": "arn:aws:states:::sns:publish",
+                "Parameters": {
+                  "TopicArn": "${PipelineStatusSnsTopicArn}",
+                  "Message": "FAILURE",
+                  "MessageAttributes": {
+                    "StepFunctionsExecutionName": {
+                      "DataType": "String",
+                      "StringValue.$": "$$.Execution.Name"
+                    },
+                    "GitCommitHash": {
+                      "DataType": "String",
+                      "StringValue.$": "$.ecr.image_tags[0]"
+                    },
+                    "DataVersion": {
+                      "DataType": "String",
+                      "StringValue.$": "$.s3.version"
+                    }
+                  }
+                },
+                "ResultPath": "$.PreviousStep",
+                "Next": "ExceptionFail"
+              },
+              "ExceptionFail": {
+                "Type": "Fail"
+              },
+              "UnwrapOutput": {
+                "Type": "Pass",
+                "InputPath": "$[0]", 
+                "Next": "NotifySuccess"
+              },
+              "NotifySuccess": {
+                "Type": "Task",
+                "Resource": "arn:aws:states:::sns:publish",
+                "Parameters": {
+                  "TopicArn": "${PipelineStatusSnsTopicArn}",
+                  "Message": "SUCCESS",
+                  "MessageAttributes": {
+                    "StepFunctionsExecutionName": {
+                      "DataType": "String",
+                      "StringValue.$": "$$.Execution.Name"
+                    },
+                    "GitCommitHash": {
+                      "DataType": "String",
+                      "StringValue.$": "$.ecr.image_tags[0]"
+                    },
+                    "DataVersion": {
+                      "DataType": "String",
+                      "StringValue.$": "$.s3.version"
+                    }
+                  }
+                },
+                "ResultPath": "$.PreviousStep",
+                "Next": "Succeed"
+              },
+              "Succeed": {
+                "Type": "Succeed"
+              } 
+            }
+          }
+        - { 
+            CreateTrainingJobLambdaArn: !GetAtt CreateTrainingJobLambda.Arn,
+            CheckTrainingJobStatusLambdaArn: !GetAtt CheckTrainingJobStatusLambda.Arn,
+            SageMakerExecutionRoleArn: !GetAtt SageMakerExecutionRole.Arn,
+            ProductTagValue: !Ref ProductName,
+            ServiceTagValue: !Ref ServiceName,
+            StageTagValue: !Ref EnvironmentName,
+            PipelineStatusSnsTopicArn: !Ref PipelineStatusSnsTopic,
+            StagingEcrRepoName: !Ref StagingEcrRepository,
+            PushOutputLambdaArn: !GetAtt PushOutputLambda.Arn
+          }
+      RoleArn: !GetAtt TrainAndDeployStepFunctionsRole.Arn
+      StateMachineName: !Join
+        - '-'
+        - - !Ref EnvironmentName
+          - !Ref ProductName
+          - !Ref ServiceName
+          - train-deploy
+      Tags: 
+        - 
+          Key: "product"
+          Value: !Ref ProductName
+        - 
+          Key: "service"
+          Value: !Ref ServiceName
+        - 
+          Key: "stage"
+          Value: !Ref EnvironmentName
