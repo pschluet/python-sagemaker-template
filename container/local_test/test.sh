@@ -1,1 +1,1 @@
-docker run -v $(pwd)/test_dir:/opt/ml python-base test
+docker run -v /${PWD}/test_dir:/opt/ml python-base test

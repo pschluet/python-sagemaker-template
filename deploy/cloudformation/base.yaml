@@ -1,0 +1,630 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: "The training and deployment pipeline for a Machine Learning model"
+# Note: When this Cloudformation template is deployed, the deploy script combines
+#  this file with either the "batch-job.yaml" template or the "model-server.yaml"
+#  template depending on the stack type that is being deployed.
+
+Parameters:
+  ProductName:
+    Description: Project name (also used as a tag for cost-tracking purposes)
+    Type: String
+  ServiceName:
+    Description: Service name (also used as a tag for cost-tracking purposes)
+    Type: String
+  EnvironmentName:
+    Description: Environment name (also used as a tag for cost-tracking purposes)
+    Type: String
+  TrainingDataS3Key:
+    Description: S3 key used to identify the training data file
+    Type: String
+
+# Mappings:
+#   set of mappings
+
+# Conditions:
+#   set of conditions
+
+Resources:
+  DataSourceBucket:
+    Type: AWS::S3::Bucket
+    Properties: 
+      BucketName: !Join
+        - '-'
+        - - e1
+          - !Ref EnvironmentName
+          - !Ref ProductName
+          - !Ref ServiceName
+          - sagemaker-source
+      LifecycleConfiguration:
+        Rules: 
+          - NoncurrentVersionExpirationInDays: 90
+            Status: "Enabled"
+      Tags: 
+        - 
+          Key: "product"
+          Value: !Ref ProductName
+        - 
+          Key: "service"
+          Value: !Ref ServiceName
+        - 
+          Key: "stage"
+          Value: !Ref EnvironmentName
+      VersioningConfiguration: 
+        Status: "Enabled"
+  OutputBucket:
+    Type: AWS::S3::Bucket
+    Properties: 
+      BucketName: !Join
+        - '-'
+        - - e1
+          - !Ref EnvironmentName
+          - !Ref ProductName
+          - !Ref ServiceName
+          - sagemaker-output
+      Tags: 
+        - 
+          Key: "product"
+          Value: !Ref ProductName
+        - 
+          Key: "service"
+          Value: !Ref ServiceName
+        - 
+          Key: "stage"
+          Value: !Ref EnvironmentName
+  SourceCodeBucket:
+    Type: AWS::S3::Bucket
+    Properties: 
+      BucketName: !Join
+        - '-'
+        - - e1
+          - !Ref EnvironmentName
+          - !Ref ProductName
+          - !Ref ServiceName
+          - source-code
+      Tags: 
+        - 
+          Key: "product"
+          Value: !Ref ProductName
+        - 
+          Key: "service"
+          Value: !Ref ServiceName
+        - 
+          Key: "stage"
+          Value: !Ref EnvironmentName
+  CloudTrailLoggingBucket:
+    Type: AWS::S3::Bucket
+    Properties: 
+      BucketName: !Join
+        - '-'
+        - - e1
+          - !Ref EnvironmentName
+          - !Ref ProductName
+          - !Ref ServiceName
+          - cloudtrail-logs
+      Tags: 
+        - 
+          Key: "product"
+          Value: !Ref ProductName
+        - 
+          Key: "service"
+          Value: !Ref ServiceName
+        - 
+          Key: "stage"
+          Value: !Ref EnvironmentName
+  CloudtrailBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    DependsOn: CloudTrailLoggingBucket
+    Properties: 
+      Bucket: !Ref CloudTrailLoggingBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AWSCloudTrailAclCheck20150319
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:GetBucketAcl
+            Resource: !GetAtt CloudTrailLoggingBucket.Arn
+          - Sid: AWSCloudTrailWrite20150319
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Join
+              - '/'
+              - - !GetAtt CloudTrailLoggingBucket.Arn
+                - !Ref ServiceName
+                - AWSLogs
+                - !Ref "AWS::AccountId"
+                - "*"
+            Condition:
+              StringEquals:
+                s3:x-amz-acl: bucket-owner-full-control
+  StagingEcrRepository:
+    Type: AWS::ECR::Repository
+    Properties: 
+      LifecyclePolicy: 
+        LifecyclePolicyText: |
+          {
+            "rules": [
+            {
+              "rulePriority": 1,
+              "description": "Only keep a set number of images",
+              "selection": {
+                "tagStatus": "any",
+                "countType": "imageCountMoreThan",
+                "countNumber": 10
+              },
+              "action": { "type": "expire" }
+            }]
+          }
+      RepositoryName: !Join
+        - '-'
+        - - !Ref EnvironmentName
+          - !Ref ProductName
+          - !Ref ServiceName
+          - staging
+      Tags: 
+        - 
+          Key: "product"
+          Value: !Ref ProductName
+        - 
+          Key: "service"
+          Value: !Ref ServiceName
+        - 
+          Key: "stage"
+          Value: !Ref EnvironmentName
+  MasterEcrRepository:
+    Type: AWS::ECR::Repository
+    Properties: 
+      LifecyclePolicy: 
+        LifecyclePolicyText: |
+          {
+            "rules": [
+            {
+              "rulePriority": 1,
+              "description": "Only keep a set number of images",
+              "selection": {
+                "tagStatus": "any",
+                "countType": "imageCountMoreThan",
+                "countNumber": 10
+              },
+              "action": { "type": "expire" }
+            }]
+          }
+      RepositoryName: !Join
+        - '-'
+        - - !Ref EnvironmentName
+          - !Ref ProductName
+          - !Ref ServiceName
+          - master
+      Tags: 
+        - 
+          Key: "product"
+          Value: !Ref ProductName
+        - 
+          Key: "service"
+          Value: !Ref ServiceName
+        - 
+          Key: "stage"
+          Value: !Ref EnvironmentName
+  InitiateStepFunctionsLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join
+        - '-'
+        - - !Ref EnvironmentName
+          - !Ref ProductName
+          - !Ref ServiceName
+          - initiate-step-functions
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action:
+            - sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+              - lambda.amazonaws.com
+        Version: 2012-10-17
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSLambdaExecute
+      Policies:
+        - PolicyName: !Join
+          - '-'
+          - - !Ref EnvironmentName
+            - !Ref ProductName
+            - !Ref ServiceName
+            - initiate-step-functions-policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                - s3:Get*
+                - s3:List*
+                Resource: !GetAtt DataSourceBucket.Arn
+              - Effect: Allow
+                Action:
+                - ecr:GetAuthorizationToken
+                - ecr:BatchCheckLayerAvailability
+                - ecr:GetDownloadUrlForLayer
+                - ecr:GetRepositoryPolicy
+                - ecr:DescribeRepositories
+                - ecr:ListImages
+                - ecr:DescribeImages
+                - ecr:BatchGetImage
+                Resource: 
+                - !GetAtt StagingEcrRepository.Arn
+                - !GetAtt MasterEcrRepository.Arn
+              - Effect: Allow
+                Action:
+                - ecr:DescribeRepositories
+                Resource: arn:aws:ecr:*:*:repository/*
+              - Effect: Allow
+                Action:
+                - states:DescribeStateMachine
+                - states:StartExecution
+                - states:ListExecutions
+                - states:UpdateStateMachine
+                Resource:
+                - !Ref TrainAndDeployStateMachine
+  InitiateStepFunctionsLambda:
+    Type: AWS::Lambda::Function
+    Properties: 
+      Code: lambda/initiate_step_functions.py
+      Description: "Lambda that initiates the Step Functions portion of the deployment pipeline"
+      Environment: 
+        Variables: 
+          DATA_SOURCE_BUCKET_NAME: !Ref DataSourceBucket
+          DATA_SOURCE_OBJECT_KEY: !Ref TrainingDataS3Key
+          MASTER_ECR_REPOSITORY_NAME: !Ref MasterEcrRepository
+          STEP_FUNCTIONS_STATE_MACHINE_ARN: !Ref TrainAndDeployStateMachine
+          SOURCE_CODE_BUCKET_NAME: !Ref SourceCodeBucket
+      FunctionName: !Join
+        - '-'
+        - - !Ref EnvironmentName
+          - !Ref ProductName
+          - !Ref ServiceName
+          - start-step-functions
+      Handler: initiate_step_functions.lambda_handler
+      Role: 
+        Fn::GetAtt:
+          - InitiateStepFunctionsLambdaRole
+          - Arn
+      Runtime: "python3.7"
+      Timeout: 20
+      Tags: 
+        - 
+          Key: "product"
+          Value: !Ref ProductName
+        - 
+          Key: "service"
+          Value: !Ref ServiceName
+        - 
+          Key: "stage"
+          Value: !Ref EnvironmentName
+  NewSourceDataTrail:
+    Type: AWS::CloudTrail::Trail
+    DependsOn: 
+      - CloudtrailBucketPolicy
+      - CloudTrailLoggingBucket
+    Properties: 
+      EventSelectors: 
+        - DataResources: 
+          - Type: AWS::S3::Object
+            Values:
+              - !Join
+                - "/"
+                - - !GetAtt DataSourceBucket.Arn
+                  - !Ref TrainingDataS3Key
+      IsLogging: true
+      S3BucketName: !Ref CloudTrailLoggingBucket
+      S3KeyPrefix: !Ref ServiceName
+      Tags: 
+        - 
+          Key: "product"
+          Value: !Ref ProductName
+        - 
+          Key: "service"
+          Value: !Ref ServiceName
+        - 
+          Key: "stage"
+          Value: !Ref EnvironmentName
+  NewSourceDataEvent:
+    Type: AWS::Events::Rule
+    Properties: 
+      Description: "An event signifying that new data has been uploaded to the training data bucket"
+      EventPattern: !Sub
+        - |
+          {
+            "source": [
+              "aws.s3"
+            ],
+            "detail-type": [
+              "AWS API Call via CloudTrail"
+            ],
+            "detail": {
+              "eventSource": [
+                "s3.amazonaws.com"
+              ],
+              "eventName": [
+                "PutObject",
+                "CompleteMultipartUpload"
+              ],
+              "requestParameters": {
+                "bucketName": [
+                  "${SourceBucketName}"
+                ],
+                "key": [
+                  "${TrainingDataS3Key}"
+                ]
+              }
+            }
+          }
+        - { SourceBucketName: !Ref DataSourceBucket }
+      Name: !Join
+        - '-'
+        - - !Ref EnvironmentName
+          - !Ref ProductName
+          - !Ref ServiceName
+          - new-source-data
+      State: ENABLED
+      Targets: 
+        - Arn: !GetAtt InitiateStepFunctionsLambda.Arn
+          Id: "step-function-launcher"
+  NewEcrImageEvent:
+    Type: AWS::Events::Rule
+    Properties: 
+      Description: "An event signifying that a new docker image has been pushed to ECR"
+      EventPattern: !Sub |
+          {
+            "source": [
+              "aws.ecr"
+            ],
+            "detail": {
+              "eventName": [
+                "PutImage"
+              ],
+              "requestParameters": {
+                "repositoryName": [
+                  "${StagingEcrRepository}",
+                  "${MasterEcrRepository}"
+                ]
+              }
+            }
+          }
+      Name: !Join
+        - '-'
+        - - !Ref EnvironmentName
+          - !Ref ProductName
+          - !Ref ServiceName
+          - new-docker-image
+      State: ENABLED
+      Targets: 
+        - Arn: !GetAtt InitiateStepFunctionsLambda.Arn
+          Id: "step-function-launcher"
+  PermissionForNewSourceDataEventToInvokeInitiateStepFunctionsLambda: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: !Ref InitiateStepFunctionsLambda
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt NewSourceDataEvent.Arn
+  PermissionForNewEcrImageEventToInvokeInitiateStepFunctionsLambda: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: !Ref InitiateStepFunctionsLambda
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt NewEcrImageEvent.Arn
+  TrainAndDeployStepFunctionsRole:
+    Type: AWS::IAM::Role
+    Properties: 
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action:
+            - sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+              - states.amazonaws.com
+        Version: 2012-10-17
+      Description: Role for the step functions state machine that trains a model and deploys an API on SageMaker
+      Policies: 
+        - PolicyName: !Join
+          - '-'
+          - - !Ref EnvironmentName
+            - !Ref ProductName
+            - !Ref ServiceName
+            - step-functions
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                - lambda:InvokeFunction
+                Resource: "*" # TODO Narrow down the scope here when the lambdas are built
+              - Effect: Allow
+                Action:
+                - sagemaker:*
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                - iam:PassRole
+                Resource: !GetAtt SageMakerExecutionRole.Arn
+              - Effect: Allow
+                Action:
+                - SNS:Publish
+                Resource: !Ref PipelineStatusSnsTopic 
+              - Effect: Allow
+                Action:
+                  - "events:*"
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - "states:*"
+                Resource: "*"
+      RoleName: !Join
+        - '-'
+        - - !Ref EnvironmentName
+          - !Ref ProductName
+          - !Ref ServiceName
+          - step-functions
+      Tags: 
+        - 
+          Key: "product"
+          Value: !Ref ProductName
+        - 
+          Key: "service"
+          Value: !Ref ServiceName
+        - 
+          Key: "stage"
+          Value: !Ref EnvironmentName
+  SageMakerExecutionRole:
+    Type: AWS::IAM::Role
+    Properties: 
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action:
+            - sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+              - sagemaker.amazonaws.com
+        Version: 2012-10-17
+      Description: Role for Sagemaker to interact with other services
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSageMakerFullAccess
+      RoleName: !Join
+        - '-'
+        - - !Ref EnvironmentName
+          - !Ref ProductName
+          - !Ref ServiceName
+          - sagemaker-execution
+      Tags: 
+        - 
+          Key: "product"
+          Value: !Ref ProductName
+        - 
+          Key: "service"
+          Value: !Ref ServiceName
+        - 
+          Key: "stage"
+          Value: !Ref EnvironmentName
+  SagemakerLambdaRole:
+    Type: AWS::IAM::Role
+    Properties: 
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action:
+            - sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+              - lambda.amazonaws.com
+        Version: 2012-10-17
+      Description: Role for the lambdas that interact with Sagemaker
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSLambdaExecute
+      Policies: 
+        - PolicyName: !Join
+          - '-'
+          - - !Ref EnvironmentName
+            - !Ref ProductName
+            - !Ref ServiceName
+            - sagemaker-lambda-access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                - sagemaker:*
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                - iam:PassRole
+                Resource: !GetAtt SageMakerExecutionRole.Arn
+      RoleName: !Join
+        - '-'
+        - - !Ref EnvironmentName
+          - !Ref ProductName
+          - !Ref ServiceName
+          - sagemaker-lambda
+      Tags: 
+        - 
+          Key: "product"
+          Value: !Ref ProductName
+        - 
+          Key: "service"
+          Value: !Ref ServiceName
+        - 
+          Key: "stage"
+          Value: !Ref EnvironmentName
+  CreateTrainingJobLambda:
+    Type: AWS::Lambda::Function
+    Properties: 
+      Code: lambda/create_training_job.py
+      Description: "Lambda that starts a training job in Amazon SageMaker"
+      Environment: 
+        Variables: 
+          SAGEMAKER_ROLE_ARN: !GetAtt SageMakerExecutionRole.Arn
+          OUTPUT_BUCKET_NAME: !Ref OutputBucket
+          PRODUCT_TAG_VALUE: !Ref ProductName
+          SERVICE_TAG_VALUE: !Ref ServiceName
+          STAGE_TAG_VALUE:  !Ref EnvironmentName
+          MASTER_ECR_REPOSITORY_NAME: !Ref MasterEcrRepository
+          STAGING_ECR_REPOSITORY_NAME: !Ref StagingEcrRepository
+      FunctionName: !Join
+        - '-'
+        - - !Ref EnvironmentName
+          - !Ref ProductName
+          - !Ref ServiceName
+          - create-training-job
+      Handler: create_training_job.lambda_handler
+      Role: !GetAtt SagemakerLambdaRole.Arn
+      Runtime: "python3.7"
+      Tags: 
+        - 
+          Key: "product"
+          Value: !Ref ProductName
+        - 
+          Key: "service"
+          Value: !Ref ServiceName
+        - 
+          Key: "stage"
+          Value: !Ref EnvironmentName
+  CheckTrainingJobStatusLambda:
+    Type: AWS::Lambda::Function
+    Properties: 
+      Code: lambda/check_training_job_status.py
+      Description: "Lambda that checks the status of a SageMaker training job."
+      FunctionName: !Join
+        - '-'
+        - - !Ref EnvironmentName
+          - !Ref ProductName
+          - !Ref ServiceName
+          - get-job-status
+      Handler: check_training_job_status.lambda_handler
+      Role: !GetAtt SagemakerLambdaRole.Arn
+      Runtime: "python3.7"
+      Tags: 
+        - 
+          Key: "product"
+          Value: !Ref ProductName
+        - 
+          Key: "service"
+          Value: !Ref ServiceName
+        - 
+          Key: "stage"
+          Value: !Ref EnvironmentName
+  PipelineStatusSnsTopic:
+    Type: AWS::SNS::Topic
+    Properties: 
+      TopicName: !Join
+      - '-'
+      - - !Ref EnvironmentName
+        - !Ref ProductName
+        - !Ref ServiceName
+        - pipeline-status

@@ -74,6 +74,11 @@ def train():
 
         # save the model
         dump(clf, os.path.join(model_path, 'model.joblib'))
+
+        # Example of writing data to the output data path
+        with open(os.path.join(output_path, 'data/sample.csv'), 'w') as f:
+            f.write('1,2,3,4')
+
         print('Training complete.')
     except Exception as e:
         # Write out an error file. This will be returned as the failureReason in the
@@ -103,7 +108,7 @@ def cross_validate(model, X, y, K):
     )
     # Print this to CloudWatch logs so hyperparameter tuning jobs can pick up on it
     # with the following regex:	-Fold-Cross-Validated::accuracy::([0-9.]+)::
-    print('::{}-Fold-Cross-Validated::accuracy::{}::'.format(K, np.mean(score)))
+    print('::{}-Fold-Cross-Validated::accuracy::{}::'.format(K, np.mean(score) * 100))
 
 if __name__ == '__main__':
     train()
